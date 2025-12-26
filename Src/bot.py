@@ -528,7 +528,7 @@ FILE_MAP = {
 }
 
 user_cool = {}
-COOLDOWN = 30
+COOLDOWN = 60
 
 def extract_lines(path, n=100):
     if not path.exists(): return "", 0
@@ -657,7 +657,7 @@ async def menu_callback(update, context):
         await msg.delete()
 
         # extract
-        content, count = extract_lines(FILE_MAP[choice], 200)
+        content, count = extract_lines(FILE_MAP[choice], 500)
 
         await send_alert(context.bot, user, choice, count)
 
