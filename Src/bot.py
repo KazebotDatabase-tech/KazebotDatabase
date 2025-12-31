@@ -528,7 +528,7 @@ FILE_MAP = {
 }
 
 user_cool = {}
-COOLDOWN = 5
+COOLDOWN = 30
 
 def extract_lines(path, n=100):
     if not path.exists(): return "", 0
