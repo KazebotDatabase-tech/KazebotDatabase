@@ -728,20 +728,26 @@ async def owner_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_document(bio, filename=bio.name, caption=caption)
 
-# ---------------- RUN BOT ----------------
+# ---------------- MAIN ----------------
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # ----- Commands -----
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("genkey", genkey_cmd))
     app.add_handler(CommandHandler("key", key_cmd))
     app.add_handler(CommandHandler("revoke", revoke_cmd))
     app.add_handler(CommandHandler("mytime", mytime_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
-    app.add_handler(CommandHandler("generate", generate_cmd))
-    app.add_handler(CommandHandler("generate", owner_generate))  # Override yung old /generate (para owner ito na yung gamit)
     app.add_handler(CommandHandler("panel", panel_cmd))
+
+    # Owner custom generate (replaces old /generate menu command)
+    app.add_handler(CommandHandler("generate", owner_generate))
+
+    # Menus & generation buttons
+    app.add_handler(CallbackQueryHandler(menu_callback))
+
+    # Error handler
+    app.add_error_handler(error_handler)
 
     # ----- Menu Buttons -----
     app.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
