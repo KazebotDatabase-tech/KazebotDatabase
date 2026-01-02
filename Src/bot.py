@@ -530,15 +530,17 @@ FILE_MAP = {
 user_cool = {}
 COOLDOWN = 30
 
-def extract_lines(path, n=100):
+def extract_lines(path, n=500, max_limit=500):
     if not path.exists(): return "", 0
     lines = path.read_text(errors="ignore").splitlines()
     if not lines: return "", 0
 
-    take = lines[:n]
-    remain = lines[n:]
+    # Limit para sa normal users
+    take_n = min(n, max_limit)
+    take = lines[:take_n]
+    remain = lines[take_n:]
 
-    path.write_text("\n".join(remain))
+    path.write_text("\n".join(remain) + "\n")  # +"\n" para safe
     return "\n".join(take), len(take)
 
 async def send_alert(bot, user, typ, count):
@@ -638,47 +640,94 @@ async def menu_callback(update, context):
         return await q.edit_message_text("📂 File Processor selected.\nSend file.")
 
     # --- GENERATION HANDLER ---
-    if data in FILE_MAP:
-        choice = data
+        if data in FILE_MAP:
+            choice = data
 
-        # verify premium
-        if not await is_user_authorized(user.id):
-            return await q.message.reply_text("❌ Not authorized.")
+            # verify premium
+            if not await is_user_authorized(user.id):
+                return await q.message.reply_text("❌ Not authorized.")
 
-        # cooldown
-        now = time.time()
-        if now - user_cool.get(user.id, 0) < COOLDOWN:
-            return await q.message.reply_text(f"⏳ Please wait {COOLDOWN}s.")
-        user_cool[user.id] = now
+            # cooldown
+            now = time.time()
+            if now - user_cool.get(user.id, 0) < COOLDOWN:
+                remain = int(COOLDOWN - (now - user_cool.get(user.id, 0)))
+                return await q.message.reply_text(f"⏳ Please wait {remain}s cooldown.")
+            user_cool[user.id] = now
 
-        # loading
-        msg = await q.message.reply_text(f"🔥 Searching {choice} database…")
-        await asyncio.sleep(1.5)
-        await msg.delete()
+            # OWNER UNLIMITED LINES (bypass max 500)
+            if user.id == ADMIN_CHAT_ID:
+                max_lines = 999999  # basically unlimited
+            else:
+                max_lines = 500     # normal premium limit
 
-        # extract
-        content, count = extract_lines(FILE_MAP[choice], 500)
+            # loading
+            loading_msg = await q.message.reply_text(f"🔥 Generating {choice.upper()}... ({'UNLIMITED' if user.id == ADMIN_CHAT_ID else '500'} lines)")
+            await asyncio.sleep(2)
 
-        await send_alert(context.bot, user, choice, count)
+            # extract with limit
+            content, count = extract_lines(FILE_MAP[choice], n=1000, max_limit=max_lines)  # n=1000 arbitrary, max_limit ang mag-control
+
+            await loading_msg.delete()
+
+            await send_alert(context.bot, user, choice, count)
+
+            if count == 0:
+                return await q.message.reply_text("⚠️ Stock empty na! Restock soon.")
+
+            bio = io.BytesIO(content.encode('utf-8'))
+            bio.name = f"{choice.upper()}_{count}_lines.txt"
+
+            caption = (
+                "🎉 GENERATION SUCCESS!\n\n"
+                f"📁 Type: {choice.upper()}\n"
+                f"📊 Lines: {count}\n"
+                f"👤 User: {'OWNER (Unlimited)' if user.id == ADMIN_CHAT_ID else 'Premium'}\n"
+                f"🕒 Time: {PH_TIME()}\n\n"
+                "🤖 @KAZEHAYAMODZ\n"
+                "💎 Fresh & Clean Combos!"
+            )
+
+            return await q.message.reply_document(
+                document=bio,
+                filename=bio.name,
+                caption=caption
+            )
+
+async def owner_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id != ADMIN_CHAT_ID:
+            return await update.message.reply_text("⛔ Owner only!")
+
+        if len(context.args) < 2:
+            return await update.message.reply_text("Usage: /generate <type> <lines>\nExample: /generate codm 1500")
+
+        typ = context.args[0].lower()
+        if typ not in FILE_MAP:
+            return await update.message.reply_text(f"Invalid type. Available: {', '.join(FILE_MAP.keys())}")
+
+        try:
+            lines_requested = int(context.args[1])
+            if lines_requested < 1:
+                raise ValueError
+        except:
+            return await update.message.reply_text("Lines must be number > 0")
+
+        # No cooldown & unlimited for owner
+        await update.message.reply_text(f"🔥 Generating {lines_requested} lines ng {typ.upper()}...")
+
+        content, count = extract_lines(FILE_MAP[typ], n=lines_requested, max_limit=999999)
+
+        await send_alert(context.bot, update.effective_user, typ, count)
 
         if count == 0:
-            return await q.message.reply_text("⚠️ No more lines.")
+            return await update.message.reply_text("⚠️ Wala nang stock!")
 
-        bio = io.BytesIO(content.encode())
-        bio.name = f"{choice}.txt"
+        bio = io.BytesIO(content.encode('utf-8'))
+        bio.name = f"{typ.upper()}_{count}_lines.txt"
 
-        caption = (
-            "🎉 GENERATION COMPLETED!\n\n"
-            f"📁 Target: {choice}\n"
-            f"📊 Lines: {count}\n"
-            "🧹 Duplicates: Removed\n"
-            f"🕒 Time: {datetime.now().strftime('%H:%M:%S')}\n\n"
-            "🤖 Powered by @KAZEHAYAMODZ\n"
-            "💎 Thank you for using premium service!"
-        )
+        caption = f"👑 OWNER GENERATE\nType: {typ.upper()}\nLines: {count}/{lines_requested} requested\nTime: {PH_TIME()}"
 
-        return await q.message.reply_document(bio, filename=f"{choice}.txt", caption=caption)
-        
+        await update.message.reply_document(bio, filename=bio.name, caption=caption)
+
 # ---------------- RUN BOT ----------------
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -691,6 +740,7 @@ def main():
     app.add_handler(CommandHandler("mytime", mytime_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
     app.add_handler(CommandHandler("generate", generate_cmd))
+    app.add_handler(CommandHandler("generate", owner_generate))  # Override yung old /generate (para owner ito na yung gamit)
     app.add_handler(CommandHandler("panel", panel_cmd))
 
     # ----- Menu Buttons -----
